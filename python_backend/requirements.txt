@@ -1,7 +1,7 @@
 Flask
 requests
 pdfplumber
-weasyprint
+xhtml2pdf
 Flask-Cors
 python-dotenv
 Flask-SQLAlchemy

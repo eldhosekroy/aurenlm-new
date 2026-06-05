@@ -11,7 +11,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from markdown import markdown
-from weasyprint import HTML, CSS
+from xhtml2pdf import pisa
 from datetime import datetime
 
 import logging
@@ -349,13 +349,14 @@ def generate_session_notes(session_id):
     markdown_content = notes_response["text"]
     generated_title = custom_title if custom_title else notes_response["title"]
 
-    # Generate PDF
+    # Generate PDF file
     pdf_filename = f"session_notes_{session_id}_{style}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_filename)
     try:
-        markdown_to_pdf(markdown_content, pdf_path)
+        markdown_to_pdf_file(markdown_content, pdf_path, title=generated_title)
     except Exception as e:
-        return jsonify({"message": "Error converting notes to PDF", "details": str(e)}), 500
+        app.logger.error(f"Error generating notes PDF: {e}")
+        return jsonify({"message": "Error generating notes file", "details": str(e)}), 500
 
     new_session_note = SessionNote(
         session_id=session.id,
@@ -366,7 +367,7 @@ def generate_session_notes(session_id):
     db.session.add(new_session_note)
     db.session.commit()
 
-    return jsonify({"message": "Session notes generated successfully", "id": new_session_note.id, "title": new_session_note.title, "pdf_url": url_for('get_session_note_pdf', session_note_id=new_session_note.id)}), 201
+    return jsonify({"message": "Session notes generated successfully", "id": new_session_note.id, "title": new_session_note.title, "pdf_url": url_for('get_session_note_pdf', session_note_id=new_session_note.id, _external=True)}), 201
 
 @app.route("/api/sessions/<int:session_id>/notes", methods=["GET"])
 @login_required
@@ -393,11 +394,31 @@ def get_session_note_pdf(session_note_id):
     session_note = SessionNote.query.get_or_404(session_note_id)
     if session_note.session.user_id != current_user.id:
         return jsonify({"message": "Unauthorized"}), 403
-    
-    if not session_note.pdf_path or not os.path.exists(session_note.pdf_path):
-        return jsonify({"message": "PDF not found"}), 404
-    
-    return send_file(session_note.pdf_path, as_attachment=True, download_name=os.path.basename(session_note.pdf_path))
+
+    if not session_note.pdf_path:
+        return jsonify({"message": "Notes file not found"}), 404
+
+    absolute_pdf_path = os.path.abspath(session_note.pdf_path)
+
+    if not os.path.exists(absolute_pdf_path):
+        app.logger.error(f"Notes file not found: {absolute_pdf_path}")
+        return jsonify({"message": "Notes file not found"}), 404
+
+    # Determine mimetype based on file extension
+    ext = os.path.splitext(absolute_pdf_path)[1].lower()
+    if ext == '.html':
+        mimetype = 'text/html'
+        download_name = f"{session_note.title or 'notes'}.html"
+    else:
+        mimetype = 'application/pdf'
+        download_name = f"{session_note.title or 'notes'}.pdf"
+
+    return send_file(
+        absolute_pdf_path,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype=mimetype
+    )
 
 @app.route("/api/session_notes/<int:session_note_id>", methods=["DELETE"])
 @login_required
@@ -509,19 +530,44 @@ Notes:
 
     return {"text": markdown_content, "title": generated_title}
 
-def markdown_to_pdf(markdown_content, output_path):
-    html_content = markdown(markdown_content)
+def markdown_to_pdf_file(markdown_content, output_path, title="Notes"):
+    """Convert markdown to a styled PDF file using xhtml2pdf."""
+    html_body = markdown(markdown_content, extensions=['fenced_code', 'tables'])
+    full_html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>{title}</title>
+  <style>
+    @page {{
+        size: a4 portrait;
+        margin: 2cm;
+    }}
+    body {{ font-family: Helvetica, Arial, sans-serif; line-height: 1.5; color: #222; font-size: 12pt; }}
+    h1, h2, h3, h4 {{ color: #1a1a2e; margin-top: 1.2em; }}
+    h1 {{ border-bottom: 2px solid #52B788; padding-bottom: 0.3em; }}
+    h2 {{ border-bottom: 1px solid #ddd; padding-bottom: 0.2em; }}
+    code {{ background-color: #f3f4f6; padding: 2px 4px; font-family: Courier, monospace; }}
+    pre {{ background-color: #f3f4f6; padding: 12px; font-family: Courier, monospace; }}
+    blockquote {{ border-left: 4px solid #52B788; margin: 0 0 0 10px; padding-left: 10px; color: #555; }}
+    table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}
+    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+    th {{ background-color: #f0faf4; }}
+    ul, ol {{ margin-left: 20px; }}
+  </style>
+</head>
+<body>
+  <h1>{title}</h1>
+  {html_body}
+</body>
+</html>"""
     
-    # Basic CSS for a clean, readable layout
-    css = CSS(string='''
-        @page { size: A4; margin: 1in; }
-        body { font-family: sans-serif; line-height: 1.5; }
-        h1, h2, h3, h4, h5, h6 { margin-top: 1em; margin-bottom: 0.5em; }
-        ul, ol { margin-bottom: 1em; }
-        pre { background-color: #eee; padding: 1em; border-radius: 5px; }
-    ''')
+    with open(output_path, "w+b") as result_file:
+        pisa_status = pisa.CreatePDF(full_html, dest=result_file)
     
-    HTML(string=html_content).write_pdf(output_path, stylesheets=[css])
+    if pisa_status.err:
+        raise Exception(f"PDF Generation Error: {pisa_status.err}")
+    
     return output_path
 
 def filter_notes_section(text):
@@ -735,17 +781,29 @@ def gemini_completion():
     db.session.commit()
 
     if stream:
+        # Capture session_id as a plain int before entering the generator
+        # to avoid SQLAlchemy lazy-loading issues inside the streaming context
+        _session_id = session.id
         def generate():
             full_response = []
-            for chunk in get_gemini_streaming_response(full_prompt_text):
-                full_response.append(chunk)
-                yield chunk
-            
-            # Save the full AI response after streaming finishes
-            final_text = "".join(full_response)
-            gemini_message = ChatMessage(session_id=session.id, sender='gemini', content=final_text)
-            db.session.add(gemini_message)
-            db.session.commit()
+            try:
+                for chunk in get_gemini_streaming_response(full_prompt_text):
+                    full_response.append(chunk)
+                    yield chunk
+            finally:
+                # Save the full AI response after streaming finishes or if interrupted
+                final_text = "".join(full_response)
+                if final_text.strip():
+                    try:
+                        gemini_message = ChatMessage(session_id=_session_id, sender='gemini', content=final_text)
+                        db.session.add(gemini_message)
+                        db.session.commit()
+                        app.logger.info(f"AI message saved to DB for session {_session_id}, length: {len(final_text)}")
+                    except Exception as e:
+                        app.logger.error(f"Error saving AI message for session {_session_id}: {e}")
+                        db.session.rollback()
+                else:
+                    app.logger.warning(f"No AI response text to save for session {_session_id}")
 
         return Response(stream_with_context(generate()), mimetype='text/plain')
     else:
@@ -922,16 +980,24 @@ def get_quizzes_for_session(session_id):
         return jsonify({"message": "Unauthorized"}), 403
 
     quizzes = Quiz.query.filter_by(session_id=session.id).order_by(Quiz.generated_at.desc()).all()
-    return jsonify([
-        {
+    result = []
+    for q in quizzes:
+        # Get the most recent attempt score for this quiz by the current user
+        latest_attempt = QuizAttempt.query.filter_by(
+            quiz_id=q.id,
+            user_id=current_user.id
+        ).order_by(QuizAttempt.attempted_at.desc()).first()
+
+        result.append({
             "id": q.id,
             "session_id": q.session_id,
             "difficulty": q.difficulty,
             "quiz_data": q.quiz_data,
-            "generated_at": q.generated_at.isoformat()
-        }
-        for q in quizzes
-    ])
+            "generated_at": q.generated_at.isoformat(),
+            "score": round(latest_attempt.score, 1) if latest_attempt else None,
+            "attempted_at": latest_attempt.attempted_at.isoformat() if latest_attempt else None,
+        })
+    return jsonify(result)
 
 @app.route("/api/quizzes/<int:quiz_id>/submit", methods=["POST"])
 @login_required

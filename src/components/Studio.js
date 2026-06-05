@@ -14,21 +14,21 @@ import { useNotification } from '../hooks/useNotification';
 import QuizView from './QuizView'; 
 
 const branchColorsDark = [
-  '#00d2ff', // Neon Blue
-  '#00ff87', // Neon Green
-  '#ff007a', // Neon Pink
-  '#f9d423', // Neon Yellow
-  '#7000ff', // Neon Purple
-  '#ff4e50', // Neon Coral
+  '#5FD3A1', // Mint
+  '#E07A5F', // Coral
+  '#74C0FC', // Sky Blue
+  '#F9A825', // Amber
+  '#B39DDB', // Lavender
+  '#F48FB1', // Pink
 ];
 
 const branchColorsLight = [
-  '#1a73e8', // Google Blue
-  '#34a853', // Google Green
-  '#ea4335', // Google Red
-  '#f9ab00', // Google Yellow
-  '#a142f4', // Purple
-  '#fa7b17', // Orange
+  '#52B788', // Sage Green
+  '#E07A5F', // Coral
+  '#3B8ED0', // Blue
+  '#F0A500', // Gold
+  '#9575CD', // Lavender
+  '#E91E8C', // Rose
 ];
 
 // Custom Node Component for ReactFlow
@@ -515,6 +515,34 @@ function Studio({ isOpen, togglePanel, sessionPdfContent, onMindmapQuery, curren
     }
   }, [currentSessionId]);
 
+  const handleDownloadNote = async (note) => {
+    if (!note.pdf_url) {
+      showError('No notes file available.');
+      return;
+    }
+    try {
+      showInfo('Opening notes…');
+      const response = await axios.get(note.pdf_url, {
+        withCredentials: true,
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data], { type: response.headers['content-type'] });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      showSuccess('Notes opened!');
+    } catch (error) {
+      console.error('Error opening note:', error);
+      const status = error.response?.status;
+      if (status === 404) {
+        showError('Notes file not found on server. Please regenerate the notes.');
+      } else if (status === 401 || status === 403) {
+        showError('Session expired. Please log in again.');
+      } else {
+        showError('Failed to open notes. Please try again.');
+      }
+    }
+  };
+
   useEffect(() => {
     fetchQuizHistory();
     fetchSessionNotes();
@@ -558,7 +586,8 @@ function Studio({ isOpen, togglePanel, sessionPdfContent, onMindmapQuery, curren
         { answers },
         { withCredentials: true }
       );
-      showSuccess(`Quiz submitted! Your score: ${response.data.score.toFixed(2)}%`);
+      showSuccess(`Quiz submitted! Score: ${response.data.score.toFixed(0)}%`);
+      fetchQuizHistory(); // Refresh so score appears in history
       return response.data;
     } catch (error) {
       console.error("Error submitting quiz:", error);
@@ -568,224 +597,332 @@ function Studio({ isOpen, togglePanel, sessionPdfContent, onMindmapQuery, curren
     }
   };
 
+  // ── Studio Tab State ────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = React.useState('mindmap');
+
+  const tabConfig = [
+    { id: 'mindmap', label: 'Mind Map', icon: '🗺' },
+    { id: 'notes',   label: 'Notes',    icon: '📝' },
+    { id: 'quiz',    label: 'Quiz',     icon: '❓' },
+  ];
+
   return (
     <Box
       sx={{
-        height: 'calc(100vh - 140px)',
-        overflowY: 'auto',
-        border: '1px solid #e0e0e0',
-        borderRadius: '8px',
-        width: isOpen ? 'auto' : '50px',
-        transition: 'width 0.3s ease-in-out',
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        alignItems: isOpen ? 'flex-start' : 'center',
+        overflow: 'hidden',
       }}
     >
+      {/* ── Studio Header ── */}
+      <Box sx={{
+        px: 2, py: 1.25,
+        display: 'flex', alignItems: 'center', gap: 1,
+        borderBottom: `1px solid ${theme.palette.divider}`,
+        flexShrink: 0,
+      }}>
+        <Box sx={{ fontSize: '0.9rem' }}>🎓</Box>
+        <Typography sx={{
+          fontWeight: 700, fontSize: '0.78rem', letterSpacing: '0.08em',
+          textTransform: 'uppercase', color: theme.palette.text.secondary, flex: 1,
+        }}>
+          Studio
+        </Typography>
+      </Box>
+
+      {/* ── Tab Bar ── */}
       <Box sx={{
         display: 'flex',
-        justifyContent: isOpen ? 'space-between' : 'center',
-        alignItems: 'center',
-        p: 1,
-        borderBottom: '1px solid #e0e0e0',
-        width: '100%',
+        borderBottom: `1px solid ${theme.palette.divider}`,
+        flexShrink: 0,
+        px: 1, pt: 0.75,
+        gap: 0.25,
       }}>
-        {isOpen && <Typography variant="h6" sx={{ pl: 1 }}>Studio</Typography>}
-        <Tooltip title={isOpen ? "Collapse Studio" : "Expand Studio"} placement="left">
-          <IconButton onClick={togglePanel} size="small">
-            {isOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-          </IconButton>
-        </Tooltip>
+        {tabConfig.map(tab => (
+          <Box
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            sx={{
+              flex: 1, textAlign: 'center', py: 0.875,
+              borderRadius: '8px 8px 0 0',
+              cursor: 'pointer',
+              borderBottom: activeTab === tab.id
+                ? `2px solid ${theme.palette.primary.main}`
+                : '2px solid transparent',
+              color: activeTab === tab.id ? theme.palette.primary.main : theme.palette.text.secondary,
+              background: activeTab === tab.id
+                ? theme.palette.action.selected
+                : 'transparent',
+              transition: 'all 0.18s ease',
+              '&:hover': {
+                color: theme.palette.primary.main,
+                background: theme.palette.action.hover,
+              },
+            }}
+          >
+            <Typography sx={{ fontSize: '0.72rem', fontWeight: 600 }}>
+              {tab.label}
+            </Typography>
+          </Box>
+        ))}
       </Box>
-      {isOpen && (
-        <Paper elevation={3} sx={{ flexGrow: 1, p: 2, width: '100%', height: '100%', backgroundColor: theme.palette.background.default }}>
-          <Button
-            variant="contained"
-            fullWidth
-            onClick={() => generateMindmap()}
-            disabled={loading || !sessionPdfContent}
-            sx={{ 
-              mb: 1.5, 
-              borderRadius: '10px',
-              transition: 'transform 0.2s',
-              '&:hover': { transform: 'scale(1.02)' }
-            }}
-          >
-            {loading ? 'Generating...' : 'Generate Mind Map'}
-          </Button>
-          <Button
-            variant="contained"
-            fullWidth
-            onClick={handleGlobalQuizClick}
-            disabled={quizLoading || !documentId}
-            sx={{ 
-              mb: 1.5, 
-              borderRadius: '10px',
-              transition: 'transform 0.2s',
-              '&:hover': { transform: 'scale(1.02)' }
-            }}
-          >
-            {quizLoading ? 'Generating...' : 'Generate Quiz'}
-          </Button>
-          <Button
-            variant="contained"
-            fullWidth
-            onClick={handleGlobalNotesClick}
-            disabled={loading || !sessionPdfContent || notesLoading}
-            sx={{ 
-              mb: 1.5, 
-              borderRadius: '10px',
-              transition: 'transform 0.2s',
-              '&:hover': { transform: 'scale(1.02)' }
-            }}
-          >
-            {notesLoading ? 'Generating...' : 'Generate Session Notes'}
-          </Button>
 
-          {/* Global Quiz Menu */}
-          <Menu anchorEl={quizMenuAnchor} open={Boolean(quizMenuAnchor)} onClose={handleGlobalMenuClose}>
-            <MenuItem onClick={() => { handleGenerateQuiz(null, null, 'Easy'); handleGlobalMenuClose(); }}>Easy</MenuItem>
-            <MenuItem onClick={() => { handleGenerateQuiz(null, null, 'Normal'); handleGlobalMenuClose(); }}>Normal</MenuItem>
-            <MenuItem onClick={() => { handleGenerateQuiz(null, null, 'Hard'); handleGlobalMenuClose(); }}>Hard</MenuItem>
-          </Menu>
+      {/* ── Tab Content ── */}
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
 
-          {/* Global Notes Menu */}
-          <Menu anchorEl={notesMenuAnchor} open={Boolean(notesMenuAnchor)} onClose={handleGlobalMenuClose}>
-            <MenuItem onClick={() => { handleGenerateSessionNotes(null, null, 'concise'); handleGlobalMenuClose(); }}>Concise</MenuItem>
-            <MenuItem onClick={() => { handleGenerateSessionNotes(null, null, 'detailed'); handleGlobalMenuClose(); }}>Detailed</MenuItem>
-            <MenuItem onClick={() => { handleGenerateSessionNotes(null, null, 'bullet points'); handleGlobalMenuClose(); }}>Bullet Points</MenuItem>
-          </Menu>
+        {/* Mind Map Tab */}
+        {activeTab === 'mindmap' && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, flex: 1, minHeight: 0 }}>
+            <Button
+              variant="contained"
+              fullWidth
+              onClick={() => generateMindmap()}
+              disabled={loading || !sessionPdfContent}
+              size="small"
+              sx={{ borderRadius: '10px', py: 1 }}
+            >
+              {loading ? 'Generating…' : '🗺 Generate Mind Map'}
+            </Button>
 
-          {fullMindmapData && (
-            <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
-              <Button
-                variant="outlined"
-                sx={{ flexGrow: 1 }}
-                onClick={() => setShowMindmap(!showMindmap)}
-              >
-                {showMindmap ? 'Hide Mind Map' : 'Show Mind Map'}
-              </Button>
-              {showMindmap && (
+            {fullMindmapData && (
+              <Box sx={{ display: 'flex', gap: 1 }}>
                 <Button
-                  variant="outlined"
-                  sx={{ flexGrow: 1 }}
-                  onClick={() => setIsMindmapFullscreen(true)}
-                  startIcon={<FullscreenIcon />}
+                  variant={showMindmap ? 'contained' : 'outlined'}
+                  size="small"
+                  sx={{ flex: 1, borderRadius: '8px', fontSize: '0.75rem' }}
+                  onClick={() => setShowMindmap(!showMindmap)}
                 >
-                  Fullscreen
+                  {showMindmap ? 'Hide' : 'Show'}
                 </Button>
-              )}
-            </Box>
-          )}
-
-          {showMindmap && fullMindmapData && (
-            <Box sx={{ width: '100%', flexGrow: 1, border: '1px solid #eee', mt: 2, height: '100%', overflow: 'hidden', position: 'relative' }}>
-              <ReactFlowProvider>
-                <MindmapFlow
-                  nodes={nodes}
-                  edges={edges}
-                  onNodesChange={onNodesChange}
-                  onEdgesChange={onEdgesChange}
-                  onConnect={onConnect}
-                  nodeTypes={nodeTypes}
-                  fullMindmapData={fullMindmapData}
-                  buildReactFlowElements={buildReactFlowElements}
-                  isMindmapFullscreen={isMindmapFullscreen}
-                  setIsMindmapFullscreen={setIsMindmapFullscreen}
-                  setNodes={setNodes}
-                  setEdges={setEdges}
-                />
-              </ReactFlowProvider>
-            </Box>
-          )}
-
-          <Divider sx={{ my: 2 }} />
-          <Typography variant="h6" sx={{ mb: 1 }}>Quiz History</Typography>
-          <List dense>
-            {quizHistory.length > 0 ? (
-              quizHistory.map((quiz) => (
-                <ListItem 
-                  key={quiz.id}
-                  button 
-                  onClick={() => {
-                    setCurrentQuiz(quiz);
-                    setQuizOpen(true);
-                  }}
-                >
-                  <ListItemText 
-                    primary={quiz.quiz_data.title || `Quiz from ${new Date(quiz.generated_at).toLocaleDateString()}`}
-                    secondary={`Difficulty: ${quiz.difficulty}`}
-                  />
-                </ListItem>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary">No quizzes generated for this document yet.</Typography>
+                {showMindmap && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    sx={{ flex: 1, borderRadius: '8px', fontSize: '0.75rem' }}
+                    onClick={() => setIsMindmapFullscreen(true)}
+                    startIcon={<FullscreenIcon sx={{ fontSize: 14 }} />}
+                  >
+                    Full
+                  </Button>
+                )}
+              </Box>
             )}
-          </List>
 
-          <Divider sx={{ my: 2 }} />
-          <Typography variant="h6" sx={{ mb: 1 }}>Session Notes</Typography>
-          <List dense>
+            {showMindmap && fullMindmapData ? (
+              <Box sx={{
+                width: '100%',
+                flex: 1,
+                minHeight: 280,
+                border: `1px solid ${theme.palette.divider}`,
+                borderRadius: '10px',
+                overflow: 'hidden',
+                position: 'relative',
+              }}>
+                <ReactFlowProvider>
+                  <MindmapFlow
+                    nodes={nodes} edges={edges}
+                    onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+                    onConnect={onConnect} nodeTypes={nodeTypes}
+                    fullMindmapData={fullMindmapData} buildReactFlowElements={buildReactFlowElements}
+                    isMindmapFullscreen={isMindmapFullscreen} setIsMindmapFullscreen={setIsMindmapFullscreen}
+                    setNodes={setNodes} setEdges={setEdges}
+                  />
+                </ReactFlowProvider>
+              </Box>
+            ) : !fullMindmapData ? (
+              <Box sx={{
+                textAlign: 'center', py: 4, px: 2,
+                border: `1px dashed ${theme.palette.divider}`, borderRadius: '12px', opacity: 0.6,
+              }}>
+                <Typography sx={{ fontSize: '2rem', mb: 1 }}>🗺</Typography>
+                <Typography variant="body2" sx={{ fontSize: '0.78rem', color: theme.palette.text.secondary }}>
+                  Mind Map will appear here for the current session.
+                </Typography>
+                <Typography variant="body2" sx={{ fontSize: '0.7rem', color: theme.palette.text.secondary, mt: 0.5 }}>
+                  (Generated from documents)
+                </Typography>
+              </Box>
+            ) : null}
+          </Box>
+        )}
+
+        {/* Notes Tab */}
+        {activeTab === 'notes' && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, animation: 'fadeInUp 0.2s ease' }}>
+            <Button
+              variant="contained"
+              fullWidth
+              onClick={handleGlobalNotesClick}
+              disabled={notesLoading || !sessionPdfContent}
+              size="small"
+              sx={{ borderRadius: '10px', py: 1 }}
+            >
+              {notesLoading ? 'Generating…' : '📝 Generate Notes'}
+            </Button>
+            <Menu anchorEl={notesMenuAnchor} open={Boolean(notesMenuAnchor)} onClose={handleGlobalMenuClose}>
+              <MenuItem onClick={() => { handleGenerateSessionNotes(null, null, 'concise'); handleGlobalMenuClose(); }}>Concise</MenuItem>
+              <MenuItem onClick={() => { handleGenerateSessionNotes(null, null, 'detailed'); handleGlobalMenuClose(); }}>Detailed</MenuItem>
+              <MenuItem onClick={() => { handleGenerateSessionNotes(null, null, 'bullet points'); handleGlobalMenuClose(); }}>Bullet Points</MenuItem>
+            </Menu>
+
             {sessionNotes.length > 0 ? (
-              sessionNotes.map((note) => (
-                <ListItem 
-                  key={note.id}
-                  button 
-                  onClick={() => window.open(note.pdf_url, '_blank')}
-                >
-                  <ListItemText 
-                    primary={note.title || `Notes from ${new Date(note.created_at).toLocaleDateString()}`}
-                    secondary="Click to Download PDF"
-                  />
-                </ListItem>
-              ))
+              <List dense disablePadding>
+                {sessionNotes.map((note) => (
+                  <ListItem
+                    key={note.id}
+                    button
+                    onClick={() => handleDownloadNote(note)}
+                    sx={{
+                      borderRadius: '10px', mb: 0.5,
+                      border: `1px solid ${theme.palette.divider}`,
+                      '&:hover': { bgcolor: theme.palette.action.hover },
+                    }}
+                  >
+                    <ListItemText
+                      primary={<Typography sx={{ fontSize: '0.8rem', fontWeight: 500 }}>{note.title || `Notes — ${new Date(note.created_at).toLocaleDateString()}`}</Typography>}
+                      secondary={<Typography sx={{ fontSize: '0.68rem', color: theme.palette.primary.main }}>↗ Open Notes</Typography>}
+                    />
+                  </ListItem>
+                ))}
+              </List>
             ) : (
-              <Typography variant="body2" color="text.secondary">No session notes generated yet.</Typography>
+              <Box sx={{
+                textAlign: 'center', py: 4, px: 2,
+                border: `1px dashed ${theme.palette.divider}`, borderRadius: '12px', opacity: 0.6,
+              }}>
+                <Typography sx={{ fontSize: '2rem', mb: 1 }}>📝</Typography>
+                <Typography variant="body2" sx={{ fontSize: '0.78rem', color: theme.palette.text.secondary }}>
+                  No notes generated yet.
+                </Typography>
+              </Box>
             )}
-          </List>
+          </Box>
+        )}
 
-        </Paper>
-      )}
+        {/* Quiz Tab */}
+        {activeTab === 'quiz' && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, animation: 'fadeInUp 0.2s ease' }}>
+            <Button
+              variant="contained"
+              fullWidth
+              onClick={handleGlobalQuizClick}
+              disabled={quizLoading || !documentId}
+              size="small"
+              sx={{ borderRadius: '10px', py: 1 }}
+            >
+              {quizLoading ? 'Generating…' : '❓ Generate Quiz'}
+            </Button>
+            <Menu anchorEl={quizMenuAnchor} open={Boolean(quizMenuAnchor)} onClose={handleGlobalMenuClose}>
+              <MenuItem onClick={() => { handleGenerateQuiz(null, null, 'Easy'); handleGlobalMenuClose(); }}>Easy</MenuItem>
+              <MenuItem onClick={() => { handleGenerateQuiz(null, null, 'Normal'); handleGlobalMenuClose(); }}>Normal</MenuItem>
+              <MenuItem onClick={() => { handleGenerateQuiz(null, null, 'Hard'); handleGlobalMenuClose(); }}>Hard</MenuItem>
+            </Menu>
 
-      <Menu
-        anchorEl={anchorEl}
-        open={nodeMenuOpen}
-        onClose={handleNodeMenuClose}
-      >
+            {quizHistory.length > 0 ? (
+              <List dense disablePadding>
+                {quizHistory.map((quiz) => (
+                  <ListItem
+                    key={quiz.id}
+                    button
+                    onClick={() => { setCurrentQuiz(quiz); setQuizOpen(true); }}
+                    sx={{
+                      borderRadius: '10px', mb: 0.5,
+                      border: `1px solid ${theme.palette.divider}`,
+                      '&:hover': { bgcolor: theme.palette.action.hover },
+                    }}
+                  >
+                    <ListItemText
+                      primary={
+                        <Typography sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                          {quiz.quiz_data.title || `Quiz — ${new Date(quiz.generated_at).toLocaleDateString()}`}
+                        </Typography>
+                      }
+                      secondary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.25 }}>
+                          <Typography component="span" sx={{ fontSize: '0.68rem', color: theme.palette.text.secondary }}>
+                            {quiz.difficulty}
+                          </Typography>
+                          {quiz.score != null && (
+                            <Box component="span" sx={{
+                              fontSize: '0.68rem', fontWeight: 700, px: 0.75, py: 0.2,
+                              borderRadius: '5px',
+                              bgcolor: quiz.score >= 80
+                                ? `${theme.palette.primary.main}22`
+                                : quiz.score >= 50
+                                  ? 'rgba(240,165,0,0.15)'
+                                  : `${theme.palette.secondary.main}18`,
+                              color: quiz.score >= 80
+                                ? theme.palette.primary.main
+                                : quiz.score >= 50
+                                  ? '#F0A500'
+                                  : theme.palette.secondary.main,
+                            }}>
+                              {quiz.score.toFixed(0)}%
+                            </Box>
+                          )}
+                          {quiz.score == null && (
+                            <Box component="span" sx={{
+                              fontSize: '0.65rem', px: 0.75, py: 0.2,
+                              borderRadius: '5px',
+                              bgcolor: theme.palette.action.hover,
+                              color: theme.palette.text.secondary,
+                            }}>
+                              Not attempted
+                            </Box>
+                          )}
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            ) : (
+              <Box sx={{
+                textAlign: 'center', py: 4, px: 2,
+                border: `1px dashed ${theme.palette.divider}`, borderRadius: '12px', opacity: 0.6,
+              }}>
+                <Typography sx={{ fontSize: '2rem', mb: 1 }}>❓</Typography>
+                <Typography variant="body2" sx={{ fontSize: '0.78rem', color: theme.palette.text.secondary }}>
+                  No quizzes generated yet.
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        )}
+      </Box>
+
+      {/* Use tabs hint */}
+      <Box sx={{
+        px: 2, py: 1,
+        borderTop: `1px solid ${theme.palette.divider}`,
+        display: 'flex', alignItems: 'flex-start', gap: 1,
+        flexShrink: 0,
+      }}>
+        <Typography sx={{ fontSize: '0.65rem', color: theme.palette.text.secondary, lineHeight: 1.4 }}>
+          ℹ Use the tabs above to switch between Mind Map, Notes, and Quiz.
+        </Typography>
+      </Box>
+
+      {/* Context Menus for mindmap nodes */}
+      <Menu anchorEl={anchorEl} open={nodeMenuOpen} onClose={handleNodeMenuClose}>
         <MenuItem onClick={handleAskAI}>Ask AI</MenuItem>
         <MenuItem onClick={handleNodeQuizClick}>Gen Quiz ▶</MenuItem>
         <MenuItem onClick={handleNodeNotesClick}>Gen Notes ▶</MenuItem>
       </Menu>
-
-      {/* Node Quiz Sub-menu */}
-      <Menu
-        anchorEl={nodeQuizMenuAnchor}
-        open={Boolean(nodeQuizMenuAnchor)}
-        onClose={() => setNodeQuizMenuAnchor(null)}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
+      <Menu anchorEl={nodeQuizMenuAnchor} open={Boolean(nodeQuizMenuAnchor)} onClose={() => setNodeQuizMenuAnchor(null)} anchorOrigin={{ vertical: 'top', horizontal: 'right' }}>
         <MenuItem onClick={() => handleNodeQuiz('Easy')}>Easy</MenuItem>
         <MenuItem onClick={() => handleNodeQuiz('Normal')}>Normal</MenuItem>
         <MenuItem onClick={() => handleNodeQuiz('Hard')}>Hard</MenuItem>
       </Menu>
-
-      {/* Node Notes Sub-menu */}
-      <Menu
-        anchorEl={nodeNotesMenuAnchor}
-        open={Boolean(nodeNotesMenuAnchor)}
-        onClose={() => setNodeNotesMenuAnchor(null)}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
+      <Menu anchorEl={nodeNotesMenuAnchor} open={Boolean(nodeNotesMenuAnchor)} onClose={() => setNodeNotesMenuAnchor(null)} anchorOrigin={{ vertical: 'top', horizontal: 'right' }}>
         <MenuItem onClick={() => handleNodeNotes('concise')}>Concise</MenuItem>
         <MenuItem onClick={() => handleNodeNotes('detailed')}>Detailed</MenuItem>
         <MenuItem onClick={() => handleNodeNotes('bullet points')}>Bullet Points</MenuItem>
       </Menu>
 
-      <Dialog
-        fullScreen
-        open={isMindmapFullscreen}
-        onClose={() => setIsMindmapFullscreen(false)}
-      >
+      {/* Fullscreen mindmap dialog */}
+      <Dialog fullScreen open={isMindmapFullscreen} onClose={() => setIsMindmapFullscreen(false)}>
         <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column' }}>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
             <IconButton onClick={() => setIsMindmapFullscreen(false)}>
@@ -795,18 +932,12 @@ function Studio({ isOpen, togglePanel, sessionPdfContent, onMindmapQuery, curren
           <Box sx={{ flexGrow: 1, width: '100%', height: 'calc(100vh - 64px)', overflow: 'hidden', position: 'relative' }}>
             <ReactFlowProvider>
               <MindmapFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
-                nodeTypes={nodeTypes}
-                fullMindmapData={fullMindmapData}
-                buildReactFlowElements={buildReactFlowElements}
-                isMindmapFullscreen={isMindmapFullscreen}
-                setIsMindmapFullscreen={setIsMindmapFullscreen}
-                setNodes={setNodes}
-                setEdges={setEdges}
+                nodes={nodes} edges={edges}
+                onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+                onConnect={onConnect} nodeTypes={nodeTypes}
+                fullMindmapData={fullMindmapData} buildReactFlowElements={buildReactFlowElements}
+                isMindmapFullscreen={isMindmapFullscreen} setIsMindmapFullscreen={setIsMindmapFullscreen}
+                setNodes={setNodes} setEdges={setEdges}
               />
             </ReactFlowProvider>
           </Box>
@@ -824,4 +955,4 @@ function Studio({ isOpen, togglePanel, sessionPdfContent, onMindmapQuery, curren
   );
 }
 
-export default Studio;
+export default Studio;

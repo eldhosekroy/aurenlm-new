@@ -27,3 +27,4 @@ __pycache__/
 python_backend/instance/
 python_backend/uploads/
 python_backend/.env
+python_backend/logs/
